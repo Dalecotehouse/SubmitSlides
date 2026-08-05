@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; color: #222; }
+    h1 { font-size: 20px; }
+    label { display: block; margin-top: 16px; font-weight: bold; font-size: 14px; }
+    input, select { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; font-size: 15px; }
+    button { margin-top: 24px; padding: 12px 20px; font-size: 15px; background: #7a1f2b; color: #fff; border: none; cursor: pointer; }
+    button:disabled { opacity: 0.6; }
+    #status { margin-top: 16px; font-size: 14px; }
+    .ok { color: #1a6b1a; }
+    .err { color: #b00020; }
+  </style>
+</head>
+<body>
+  <h1>Dalecote Rooms — Info Screen Submission</h1>
+  <p>Upload an image for the info screen. Once approved it will go live in the next open slot for the number of days you choose.</p>
+
+  <form id="form">
+    <label>Your name</label>
+    <input type="text" id="name" required>
+
+    <label>Lodge / Chapter / Order (optional)</label>
+    <input type="text" id="lodge">
+
+    <label>Number of days live</label>
+    <input type="number" id="days" min="1" max="30" value="7" required>
+
+    <label>Image (JPEG)</label>
+    <input type="file" id="image" accept="image/jpeg,image/jpg" required>
+
+    <button type="submit" id="submitBtn">Submit for approval</button>
+  </form>
+  <div id="status"></div>
+
+  <script>
+    // Paste your deployed Apps Script web app /exec URL here.
+    const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwRoL6ZnS-ghsTim0PxZ1eRsO-py_O0_qwtVkYcPB8tLuBl87UUJrTdUIRARm6012Rhig/exec';
+
+    const form = document.getElementById('form');
+    const statusEl = document.getElementById('status');
+    const submitBtn = document.getElementById('submitBtn');
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      const file = document.getElementById('image').files[0];
+      if (!file) return;
+
+      submitBtn.disabled = true;
+      statusEl.textContent = 'Uploading...';
+      statusEl.className = '';
+
+      const reader = new FileReader();
+      reader.onload = function () {
+        const base64 = reader.result.split(',')[1];
+        const payload = {
+          action: 'submit',
+          name: document.getElementById('name').value,
+          lodge: document.getElementById('lodge').value,
+          days: document.getElementById('days').value,
+          imageBase64: base64,
+          imageMimeType: file.type
+        };
+
+        fetch(WEB_APP_URL, {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        })
+          .then(r => r.json())
+          .then(result => {
+            if (result.ok) {
+              statusEl.textContent = 'Thanks — your submission is awaiting approval.';
+              statusEl.className = 'ok';
+              form.reset();
+            } else {
+              statusEl.textContent = result.error || 'Something went wrong.';
+              statusEl.className = 'err';
+            }
+            submitBtn.disabled = false;
+          })
+          .catch(err => {
+            statusEl.textContent = 'Error: ' + err.message;
+            statusEl.className = 'err';
+            submitBtn.disabled = false;
+          });
+      };
+      reader.readAsDataURL(file);
+    });
+  </script>
+</body>
+</html>

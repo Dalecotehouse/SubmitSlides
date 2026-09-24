@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; color: #222; }
+    h1 { font-size: 20px; }
+    #loginBox { max-width: 320px; }
+    #loginBox input { width: 100%; padding: 8px; font-size: 15px; box-sizing: border-box; }
+    #loginBox button { margin-top: 10px; padding: 10px 16px; background: #7a1f2b; color: #fff; border: none; cursor: pointer; }
+    .card { border: 1px solid #ddd; border-radius: 6px; padding: 12px 16px; margin: 12px 0; }
+    .card h3 { margin: 0 0 4px 0; font-size: 16px; }
+    .meta { color: #666; font-size: 13px; }
+    .status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 6px; }
+    .status.pending { background: #fff3cd; color: #7a5b00; }
+    .status.live { background: #d4edda; color: #1a6b1a; }
+    .status.expired, .status.rejected, .status.cancelled { background: #eee; color: #777; }
+    .actions button { margin-top: 8px; margin-right: 8px; padding: 6px 12px; cursor: pointer; }
+    .approve { background: #1a6b1a; color: #fff; border: none; }
+    .reject { background: #b00020; color: #fff; border: none; }
+    .cancel { background: #555; color: #fff; border: none; }
+    .actions button:disabled { opacity: 0.6; cursor: default; }
+    img.thumb { max-width: 160px; display: block; margin-top: 8px; }
+    #err { color: #b00020; margin-top: 8px; }
+    h2 { font-size: 16px; margin-top: 28px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Dalecote Rooms — Info Screen Admin</h1>
+
+  <div id="loginBox">
+    <input type="password" id="password" placeholder="Admin password">
+    <button id="loginBtn">Log in</button>
+    <div id="err"></div>
+  </div>
+
+  <div id="panel" style="display:none;">
+    <h2>Awaiting approval</h2>
+    <div id="pendingList"></div>
+
+    <h2>Live now</h2>
+    <div id="liveList"></div>
+
+    <h2>Past / other</h2>
+    <div id="pastList"></div>
+  </div>
+
+  <script>
+    // Paste your deployed Apps Script web app /exec URL here — same as submit.html.
+    const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwRoL6ZnS-ghsTim0PxZ1eRsO-py_O0_qwtVkYcPB8tLuBl87UUJrTdUIRARm6012Rhig/exec';
+    let token = null;
+
+    document.getElementById('loginBtn').addEventListener('click', login);
+    document.getElementById('password').addEventListener('keydown', e => {
+      if (e.key === 'Enter') login();
+    });
+
+    function login() {
+      const password = document.getElementById('password').value;
+      call({ action: 'adminAuth', password })
+        .then(result => {
+          if (result.ok) {
+            token = result.token;
+            document.getElementById('loginBox').style.display = 'none';
+            document.getElementById('panel').style.display = 'block';
+            refresh();
+          } else {
+            document.getElementById('err').textContent = result.error || 'Login failed.';
+          }
+        });
+    }
+
+    function call(payload) {
+      return fetch(WEB_APP_URL, { method: 'POST', body: JSON.stringify(payload) })
+        .then(r => r.json());
+    }
+
+    function refresh() {
+      call({ action: 'adminList', token }).then(result => {
+        if (!result.ok) { alert(result.error); return; }
+        render(result.records);
+      });
+    }
+
+    function render(records) {
+      const pending = records.filter(r => r.status === 'pending');
+      const live = records.filter(r => r.status === 'live');
+      const past = records.filter(r => ['expired', 'rejected', 'cancelled'].includes(r.status));
+
+      document.getElementById('pendingList').innerHTML = pending.map(cardHtml).join('') || '<p class="meta">Nothing waiting.</p>';
+      document.getElementById('liveList').innerHTML = live.map(cardHtml).join('') || '<p class="meta">Nothing live.</p>';
+      document.getElementById('pastList').innerHTML = past.slice(-15).reverse().map(cardHtml).join('') || '<p class="meta">Nothing yet.</p>';
+
+      document.querySelectorAll('[data-approve]').forEach(b => b.onclick = () => act('approve', b.dataset.approve, b));
+      document.querySelectorAll('[data-reject]').forEach(b => b.onclick = () => act('reject', b.dataset.reject, b));
+      document.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => act('cancel', b.dataset.cancel, b));
+      document.querySelectorAll('[data-delete]').forEach(b => b.onclick = () => act('delete', b.dataset.delete, b));
+    }
+
+    function act(action, id, btn) {
+      const original = btn ? btn.textContent : null;
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Working...';
+      }
+      call({ action, token, id })
+        .then(result => {
+          if (!result.ok) {
+            alert(result.error);
+            if (btn) { btn.disabled = false; btn.textContent = original; }
+            return;
+          }
+          if (result.warning) { alert(result.warning); }
+          render(result.records);
+        })
+        .catch(err => {
+          alert('Error: ' + err.message);
+          if (btn) { btn.disabled = false; btn.textContent = original; }
+        });
+    }
+
+    function cardHtml(r) {
+      let buttons = '';
+      if (r.status === 'pending') {
+        buttons = `<div class="actions">
+          <button class="approve" data-approve="${r.id}">Approve</button>
+          <button class="reject" data-reject="${r.id}">Reject</button>
+        </div>`;
+      } else if (r.status === 'live') {
+        buttons = `<div class="actions">
+          <button class="cancel" data-cancel="${r.id}">Cancel (remove now)</button>
+        </div>`;
+      } else {
+        buttons = `<div class="actions">
+          <button class="cancel" data-delete="${r.id}">Delete</button>
+        </div>`;
+      }
+      const expiry = r.expiresOn ? `expires ${new Date(r.expiresOn).toLocaleDateString()}` : `${r.days} day(s) requested`;
+      const thumb = r.thumbUrl ? `<img class="thumb" src="${r.thumbUrl}" alt="submitted image" onerror="this.style.display='none'">` : '';
+      const viewLink = r.viewUrl ? `<div class="meta"><a href="${r.viewUrl}" target="_blank" rel="noopener">Open full image ↗</a></div>` : '';
+      return `<div class="card">
+        <h3>${escapeHtml(r.name)} ${r.lodge ? '— ' + escapeHtml(r.lodge) : ''}
+          <span class="status ${r.status}">${r.status}</span>
+        </h3>
+        <div class="meta">Submitted ${new Date(r.submittedAt).toLocaleString()} · ${expiry}</div>
+        ${thumb}
+        ${viewLink}
+        ${buttons}
+      </div>`;
+    }
+
+    function escapeHtml(s) {
+      return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+  </script>
+</body>
+</html>
